@@ -1,0 +1,26 @@
+# Keep ACR remote build context small and avoid long archive paths
+.git
+.github
+.azure
+.vscode
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local/runtime artifacts
+.env
+.env.*
+*.local
+coverage
+dist
+build
+.tmp
+tmp
+
+# Non-runtime project files
+docs
+tests
+next-steps.md
+README.md

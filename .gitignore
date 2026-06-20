@@ -5,3 +5,4 @@ node_modules/
 data/users.json
 npm-debug.log*
 .DS_Store
+.azure
