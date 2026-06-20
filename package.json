@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --check server.js"
+    "test": "node --check server.js && node tests/api-validation.test.mjs"
   },
   "dependencies": {
     "@github/copilot": "^1.0.64-1",
