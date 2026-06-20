@@ -12,6 +12,7 @@
       <nav class="nav-actions" aria-label="멤버십 메뉴">
         <button id="openSignupModalBtn" class="ghost auth-action-btn">회원가입</button>
         <button id="openLoginModalBtn" class="primary auth-action-btn">로그인</button>
+        <button id="logoutBtn" class="ghost auth-action-btn" style="display:none;">로그아웃</button>
       </nav>
     </header>
 
@@ -25,29 +26,32 @@
           <button class="mode-btn" data-mode="longBreak">긴 휴식</button>
         </div>
 
-        <div class="timer-hero" id="timerHero">
-          <div class="mode-chip" id="modeChip">집중 모드</div>
-          <div class="timer-clock" aria-hidden="true">
-            <div class="clock-rim"></div>
-            <div class="clock-core"></div>
+        <div class="timer-main-layout">
+          <div class="timer-hero" id="timerHero">
+            <div class="mode-chip" id="modeChip">집중 모드</div>
+            <div class="timer-clock" aria-hidden="true">
+              <div class="clock-rim"></div>
+              <div class="clock-core"></div>
+            </div>
+            <div class="timer" id="timerDisplay" aria-live="polite">25:00</div>
+            <div class="over-hour-badge" id="overHourBadge" hidden aria-live="polite"></div>
           </div>
-          <div class="timer" id="timerDisplay" aria-live="polite">25:00</div>
-        </div>
 
-        <div class="controls">
-          <button id="startPauseBtn" class="primary">시작</button>
-          <button id="resetBtn" class="ghost">리셋</button>
-          <button id="skipBtn" class="ghost">건너뛰기</button>
-        </div>
+          <div class="timer-actions-layout">
+            <div class="controls controls-left">
+              <button id="startPauseBtn" class="primary">시작</button>
+              <button id="resetBtn" class="ghost">리셋</button>
+            </div>
 
-        <div class="custom-time-row">
-          <label for="customMinutesInput">현재 모드 시간(분)</label>
-          <input id="customMinutesInput" type="number" min="1" max="180" step="1" value="25" />
-          <button id="applyCustomMinutesBtn" class="ghost">적용</button>
-        </div>
-
-        <div class="progress-wrap" aria-hidden="true">
-          <div id="progressBar" class="progress"></div>
+            <div class="controls controls-right">
+              <button id="skipBtn" class="ghost">건너뛰기</button>
+              <div class="custom-time-row compact">
+                <label for="customMinutesInput">현재 모드 시간(분)</label>
+                <input id="customMinutesInput" type="number" min="1" max="180" step="1" value="25" />
+                <button id="applyCustomMinutesBtn" class="ghost">적용</button>
+              </div>
+            </div>
+          </div>
         </div>
         </section>
 
@@ -64,6 +68,7 @@
 
       <section id="memberConditionCard" class="card member-only" style="display:none;">
         <h2>나의 자세한 컨디션</h2>
+        <p class="subtitle">상세 페이지에서 자유롭게 수정할 수 있습니다.</p>
         <div class="condition-grid">
           <div class="condition-item">
             <small>이름</small>
@@ -77,6 +82,9 @@
             <small>건강 상태</small>
             <strong id="memberHealthText">-</strong>
           </div>
+        </div>
+        <div class="condition-actions">
+          <a class="ghost condition-link-btn" href="./condition.html">컨디션 상세 페이지에서 수정</a>
         </div>
       </section>
 

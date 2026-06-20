@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>나의 자세한 컨디션</title>
+    <link rel="stylesheet" href="./assets/styles.css" />
+  </head>
+  <body>
+    <header class="nav-shell">
+      <a class="brand" href="./index.html">Pomodoro Timer</a>
+      <nav class="nav-actions" aria-label="페이지 이동">
+        <a class="ghost condition-link-btn" href="./index.html">메인으로 돌아가기</a>
+      </nav>
+    </header>
+
+    <main class="app condition-page-app">
+      <section class="card condition-editor-card">
+        <h1>나의 자세한 컨디션</h1>
+        <p class="subtitle">회원 정보의 이름, 수면 패턴, 건강 상태를 직접 수정할 수 있습니다.</p>
+
+        <div id="conditionStatus" class="auth-status" aria-live="polite">정보를 불러오는 중입니다.</div>
+
+        <form id="conditionForm" class="condition-form" novalidate>
+          <div class="field">
+            <label for="conditionNameInput">이름</label>
+            <input id="conditionNameInput" type="text" minlength="2" maxlength="30" required />
+          </div>
+
+          <div class="field">
+            <label for="conditionSleepInput">수면 패턴</label>
+            <input
+              id="conditionSleepInput"
+              type="text"
+              minlength="2"
+              maxlength="100"
+              placeholder="예: 평균 7시간, 23시 취침"
+              required
+            />
+          </div>
+
+          <fieldset class="field condition-health-fieldset">
+            <legend>건강 상태</legend>
+            <label class="health-chip">
+              <input type="radio" name="conditionHealth" value="보통" checked />
+              <span>보통</span>
+            </label>
+            <label class="health-chip">
+              <input type="radio" name="conditionHealth" value="힘든" />
+              <span>힘든</span>
+            </label>
+            <label class="health-chip">
+              <input type="radio" name="conditionHealth" value="피곤함" />
+              <span>피곤함</span>
+            </label>
+          </fieldset>
+
+          <div class="condition-actions">
+            <button id="saveConditionBtn" type="submit" class="primary">저장하기</button>
+            <a class="ghost condition-link-btn" href="./index.html">취소</a>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script src="./assets/condition.js"></script>
+  </body>
+</html>

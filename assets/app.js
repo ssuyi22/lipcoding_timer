@@ -3,6 +3,7 @@ const MODES = {
   shortBreak: 5 * 60,
   longBreak: 15 * 60,
 };
+const RING_BASE_SECONDS = 60 * 60;
 
 let mode = "focus";
 let remaining = MODES[mode];
@@ -29,9 +30,9 @@ const modeChip = document.getElementById("modeChip");
 const startPauseBtn = document.getElementById("startPauseBtn");
 const resetBtn = document.getElementById("resetBtn");
 const skipBtn = document.getElementById("skipBtn");
-const progressBar = document.getElementById("progressBar");
 const customMinutesInput = document.getElementById("customMinutesInput");
 const applyCustomMinutesBtn = document.getElementById("applyCustomMinutesBtn");
+const overHourBadge = document.getElementById("overHourBadge");
 
 const focusCountEl = document.getElementById("focusCount");
 const streakCountEl = document.getElementById("streakCount");
@@ -149,28 +150,79 @@ function getBackupPayload() {
   };
 }
 
-async function authRequest(url, body) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await response.json();
+function formatApiErrorMessage(data, fallbackMessage) {
+  const baseMessage = data?.error || fallbackMessage;
+  const requestId = data?.requestId ? ` (req: ${data.requestId})` : "";
+  return `${baseMessage}${requestId}`;
+}
+
+async function apiRequest(url, options = {}, fallbackErrorMessage = "요청 실패") {
+  const response = await fetch(url, options);
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
   if (!response.ok) {
-    throw new Error(data.error || "인증 요청 실패");
+    throw new Error(formatApiErrorMessage(data, fallbackErrorMessage));
   }
   return data;
 }
 
+async function reportClientError(payload) {
+  try {
+    await fetch("/api/observability/client-error", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Deliberately ignore telemetry send failures.
+  }
+}
+
+function setupClientObservability() {
+  window.addEventListener("error", (event) => {
+    void reportClientError({
+      source: "window.error",
+      message: event.message,
+      stack: event.error?.stack || "",
+      line: event.lineno || 0,
+      column: event.colno || 0,
+      url: event.filename || window.location.href,
+    });
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    const message = reason instanceof Error ? reason.message : String(reason || "Unhandled rejection");
+    const stack = reason instanceof Error ? reason.stack || "" : "";
+    void reportClientError({
+      source: "window.unhandledrejection",
+      message,
+      stack,
+      line: 0,
+      column: 0,
+      url: window.location.href,
+    });
+  });
+}
+
+async function authRequest(url, body) {
+  const data = await apiRequest(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }, "인증 요청 실패");
+  return data;
+}
+
 async function fetchBackupFromServer(token) {
-  const response = await fetch("/api/user/backup", {
+  const data = await apiRequest("/api/user/backup", {
     method: "GET",
     headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "백업 조회 실패");
-  }
+  }, "백업 조회 실패");
   return data.backup || { predictionHistory: [], dailyContext: {}, updatedAt: null };
 }
 
@@ -181,14 +233,14 @@ async function syncBackupToServer() {
   }
 
   try {
-    await fetch("/api/user/backup", {
+    await apiRequest("/api/user/backup", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${auth.token}`,
       },
       body: JSON.stringify(getBackupPayload()),
-    });
+    }, "백업 저장 실패");
   } catch (error) {
     console.warn("백업 동기화 실패:", error);
   }
@@ -242,10 +294,13 @@ function renderAccessByAuth() {
   }
 
   if (openLoginModalBtn) {
-    openLoginModalBtn.style.display = "";
+    openLoginModalBtn.style.display = auth.isLoggedIn ? "none" : "";
   }
   if (openSignupModalBtn) {
-    openSignupModalBtn.style.display = "";
+    openSignupModalBtn.style.display = auth.isLoggedIn ? "none" : "";
+  }
+  if (logoutBtn) {
+    logoutBtn.style.display = auth.isLoggedIn ? "" : "none";
   }
 
   if (!authStatus) {
@@ -763,15 +818,26 @@ function fmt(sec) {
 
 function render() {
   timerDisplay.textContent = fmt(remaining);
-  const remainingRatio = total > 0 ? remaining / total : 0;
-  const safeRemainingRatio = Math.max(0, Math.min(1, remainingRatio));
-  const passed = total - remaining;
-  const progress = Math.max(0, Math.min(100, (passed / total) * 100));
-  const ringAngle = safeRemainingRatio * 360;
+  const remainingRatioByHour = Math.max(0, Math.min(1, remaining / RING_BASE_SECONDS));
+  const ringAngle = remainingRatioByHour * 360;
+  const overHourSeconds = Math.max(0, remaining - RING_BASE_SECONDS);
+  const overHourMinutes = Math.ceil(overHourSeconds / 60);
+  const overHourRatio = Math.max(0, Math.min(1, overHourSeconds / RING_BASE_SECONDS));
 
-  progressBar.style.width = `${progress}%`;
   if (timerCard) {
     timerCard.style.setProperty("--ring-angle", `${ringAngle}deg`);
+    timerCard.style.setProperty("--over-hour-ratio", String(overHourRatio));
+    timerCard.classList.toggle("over-hour", overHourSeconds > 0);
+  }
+
+  if (overHourBadge) {
+    if (overHourSeconds > 0) {
+      overHourBadge.hidden = false;
+      overHourBadge.textContent = `60분 기준 +${overHourMinutes}분`;
+    } else {
+      overHourBadge.hidden = true;
+      overHourBadge.textContent = "";
+    }
   }
 
   focusCountEl.textContent = String(focusCount);
@@ -779,10 +845,18 @@ function render() {
   totalFocusMinutesEl.textContent = String(totalFocusMinutes);
 }
 
+function resetCurrentModeToFull() {
+  remaining = total;
+  if (timerCard) {
+    const remainingRatioByHour = Math.max(0, Math.min(1, remaining / RING_BASE_SECONDS));
+    timerCard.style.setProperty("--ring-angle", `${remainingRatioByHour * 360}deg`);
+  }
+}
+
 function setMode(nextMode) {
   mode = nextMode;
   total = MODES[mode];
-  remaining = total;
+  resetCurrentModeToFull();
   stop();
   updateTimerModeVisual();
   updateModeButtons();
@@ -840,16 +914,11 @@ function estimateReasons(deltaMinutes, actualInterruptions, predictedInterruptio
 
 async function requestAiPredictionAnalysis(payload) {
   const token = localStorage.getItem(GITHUB_TOKEN_KEY);
-  const response = await fetch("http://localhost:8080/api/copilot/prediction-analysis", {
+  const data = await apiRequest("/api/copilot/prediction-analysis", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...payload, token }),
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "AI 예측 분석 요청에 실패했습니다.");
-  }
+  }, "AI 예측 분석 요청에 실패했습니다.");
 
   return data.analysis || {};
 }
@@ -1040,7 +1109,7 @@ function start() {
 
 startPauseBtn.addEventListener("click", start);
 resetBtn.addEventListener("click", () => {
-  remaining = total;
+  resetCurrentModeToFull();
   streakCount = 0;
   stopWithoutCountingPause();
   render();
@@ -1069,7 +1138,7 @@ function applyCustomMinutes() {
   const seconds = Math.round(minutes * 60);
   MODES[mode] = seconds;
   total = seconds;
-  remaining = seconds;
+  resetCurrentModeToFull();
   stop();
   render();
 }
@@ -1220,16 +1289,11 @@ async function sendCoachMessage() {
 
   try {
     const token = localStorage.getItem(GITHUB_TOKEN_KEY);
-    const response = await fetch("http://localhost:8080/api/copilot/chat", {
+    const data = await apiRequest("/api/copilot/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, token })
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || "요청에 실패했습니다.");
-    }
+    }, "요청에 실패했습니다.");
 
     addMessage(data.reply || "응답이 비어 있습니다.", "bot");
   } catch (error) {
@@ -1267,8 +1331,7 @@ function clearToken() {
 async function checkTokenStatus() {
   try {
     const storedToken = getStoredToken();
-    const response = await fetch("http://localhost:8080/api/token-status");
-    const data = await response.json();
+    const data = await apiRequest("/api/token-status", { method: "GET" }, "토큰 상태 확인 실패");
     const hasToken = storedToken || data.hasToken;
     
     if (!hasToken) {
@@ -1308,6 +1371,7 @@ githubTokenInput.addEventListener("keydown", (event) => {
 });
 
 checkTokenStatus();
+setupClientObservability();
 autoConnectContext();
 updateRoutinePreview();
 renderAccessByAuth();

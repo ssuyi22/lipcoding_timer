@@ -21,8 +21,179 @@ const DEFAULT_USER_PROFILE = {
 };
 const ALLOWED_HEALTH_STATUS = new Set(["보통", "힘든", "피곤함"]);
 
+function logEvent(level, event, data = {}) {
+  const payload = {
+    ts: new Date().toISOString(),
+    level,
+    event,
+    ...data,
+  };
+  const line = JSON.stringify(payload);
+  if (level === "error") {
+    console.error(line);
+    return;
+  }
+  if (level === "warn") {
+    console.warn(line);
+    return;
+  }
+  console.log(line);
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function validateSignupPayload({ email, password, name, sleepPattern, healthStatus }) {
+  if (!email || !password) {
+    return { ok: false, error: "email and password are required" };
+  }
+  if (!isValidEmail(email)) {
+    return { ok: false, error: "invalid email format" };
+  }
+  if (password.length < 4 || password.length > 64) {
+    return { ok: false, error: "password must be 4~64 chars" };
+  }
+  if (!name || !sleepPattern || !healthStatus) {
+    return { ok: false, error: "name, sleepPattern, healthStatus are required" };
+  }
+  if (name.length < 2 || name.length > 30) {
+    return { ok: false, error: "name must be 2~30 chars" };
+  }
+  if (sleepPattern.length < 2 || sleepPattern.length > 100) {
+    return { ok: false, error: "sleepPattern must be 2~100 chars" };
+  }
+  if (!ALLOWED_HEALTH_STATUS.has(healthStatus)) {
+    return { ok: false, error: "healthStatus must be one of 보통, 힘든, 피곤함" };
+  }
+  return { ok: true };
+}
+
+function validateLoginPayload({ email, password }) {
+  if (!email || !password) {
+    return { ok: false, error: "email and password are required" };
+  }
+  if (!isValidEmail(email)) {
+    return { ok: false, error: "invalid email format" };
+  }
+  if (password.length < 4 || password.length > 64) {
+    return { ok: false, error: "password must be 4~64 chars" };
+  }
+  return { ok: true };
+}
+
+function validateBackupPayload({ predictionHistory, dailyContext }) {
+  if (!Array.isArray(predictionHistory)) {
+    return { ok: false, error: "predictionHistory must be an array" };
+  }
+  if (predictionHistory.length > 200) {
+    return { ok: false, error: "predictionHistory must be 200 items or fewer" };
+  }
+  if (!dailyContext || typeof dailyContext !== "object" || Array.isArray(dailyContext)) {
+    return { ok: false, error: "dailyContext must be an object" };
+  }
+  return { ok: true };
+}
+
+function validatePredictionPayload(payload) {
+  const taskName = String(payload.taskName || "").trim();
+  const category = String(payload.category || "").trim();
+  const predictedMinutes = Number(payload.predictedMinutes);
+  const actualMinutes = Number(payload.actualMinutes);
+  const deltaMinutes = Number(payload.deltaMinutes);
+  const predictedInterruptions = Number(payload.predictedInterruptions);
+  const actualInterruptions = Number(payload.actualInterruptions);
+  const pauseCount = Number(payload.pauseCount);
+  const skipCount = Number(payload.skipCount);
+
+  if (!taskName) {
+    return { ok: false, error: "taskName is required" };
+  }
+  if (taskName.length > 80) {
+    return { ok: false, error: "taskName must be 80 chars or fewer" };
+  }
+  if (category.length > 40) {
+    return { ok: false, error: "category must be 40 chars or fewer" };
+  }
+
+  const minuteValues = [predictedMinutes, actualMinutes];
+  if (minuteValues.some((value) => !Number.isFinite(value) || value < 0 || value > 300)) {
+    return { ok: false, error: "predictedMinutes and actualMinutes must be 0~300" };
+  }
+  if (!Number.isFinite(deltaMinutes) || deltaMinutes < -300 || deltaMinutes > 300) {
+    return { ok: false, error: "deltaMinutes must be -300~300" };
+  }
+
+  const countValues = [predictedInterruptions, actualInterruptions, pauseCount, skipCount];
+  if (countValues.some((value) => !Number.isFinite(value) || value < 0 || value > 100)) {
+    return { ok: false, error: "interruption counts must be 0~100" };
+  }
+
+  return {
+    ok: true,
+    normalized: {
+      taskName,
+      category,
+      predictedMinutes,
+      actualMinutes,
+      deltaMinutes,
+      predictedInterruptions,
+      actualInterruptions,
+      pauseCount,
+      skipCount,
+      clientToken: String(payload.token || "").trim(),
+    },
+  };
+}
+
+function validateProfileUpdatePayload(payload) {
+  const name = String(payload?.name || "").trim();
+  const sleepPattern = String(payload?.sleepPattern || "").trim();
+  const healthStatus = String(payload?.healthStatus || "").trim();
+
+  if (!name || !sleepPattern || !healthStatus) {
+    return { ok: false, error: "name, sleepPattern, healthStatus are required" };
+  }
+  if (name.length < 2 || name.length > 30) {
+    return { ok: false, error: "name must be 2~30 chars" };
+  }
+  if (sleepPattern.length < 2 || sleepPattern.length > 100) {
+    return { ok: false, error: "sleepPattern must be 2~100 chars" };
+  }
+  if (!ALLOWED_HEALTH_STATUS.has(healthStatus)) {
+    return { ok: false, error: "healthStatus must be one of 보통, 힘든, 피곤함" };
+  }
+
+  return {
+    ok: true,
+    normalized: {
+      name,
+      sleepPattern,
+      healthStatus,
+    },
+  };
+}
+
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "256kb" }));
+
+app.use((req, res, next) => {
+  req.requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  res.setHeader("x-request-id", req.requestId);
+  res.on("finish", () => {
+    logEvent("info", "http_request", {
+      requestId: req.requestId,
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - startedAt,
+      ip: req.ip,
+    });
+  });
+  next();
+});
+
 app.use(express.static("."));
 
 async function ensureUsersStore() {
@@ -114,7 +285,7 @@ function getAuthEmailFromRequest(req) {
 async function authMiddleware(req, res, next) {
   const email = getAuthEmailFromRequest(req);
   if (!email) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({ error: "Unauthorized", requestId: req.requestId });
   }
   req.authEmail = email;
   return next();
@@ -219,17 +390,9 @@ app.post("/api/auth/signup", async (req, res) => {
     const name = String(req.body?.name || "").trim();
     const sleepPattern = String(req.body?.sleepPattern || "").trim();
     const healthStatus = String(req.body?.healthStatus || "").trim();
-    if (!email || !password) {
-      return res.status(400).json({ error: "email and password are required" });
-    }
-    if (!email.includes("@") || password.length < 4) {
-      return res.status(400).json({ error: "invalid signup input" });
-    }
-    if (!name || !sleepPattern || !healthStatus) {
-      return res.status(400).json({ error: "name, sleepPattern, healthStatus are required" });
-    }
-    if (!ALLOWED_HEALTH_STATUS.has(healthStatus)) {
-      return res.status(400).json({ error: "healthStatus must be one of 보통, 힘든, 피곤함" });
+    const validation = validateSignupPayload({ email, password, name, sleepPattern, healthStatus });
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error, requestId: req.requestId });
     }
 
     const profile = buildNormalizedProfile({ name, sleepPattern, healthStatus });
@@ -237,7 +400,7 @@ app.post("/api/auth/signup", async (req, res) => {
     const db = await loadUsersDb();
     const exists = db.users.find((u) => u.email === email);
     if (exists) {
-      return res.status(409).json({ error: "user already exists" });
+      return res.status(409).json({ error: "user already exists", requestId: req.requestId });
     }
 
     db.users.push({
@@ -263,11 +426,10 @@ app.post("/api/auth/signup", async (req, res) => {
         plan: "pro",
         profile,
       },
+      requestId: req.requestId,
     });
   } catch (error) {
-    return res.status(500).json({
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
+    return res.status(500).json({ error: "signup failed", requestId: req.requestId });
   }
 });
 
@@ -275,14 +437,15 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const password = String(req.body?.password || "").trim();
-    if (!email || !password) {
-      return res.status(400).json({ error: "email and password are required" });
+    const validation = validateLoginPayload({ email, password });
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error, requestId: req.requestId });
     }
 
     const db = await loadUsersDb();
     const user = db.users.find((u) => u.email === email);
     if (!user || user.passwordHash !== hashPassword(password)) {
-      return res.status(401).json({ error: "invalid credentials" });
+      return res.status(401).json({ error: "invalid credentials", requestId: req.requestId });
     }
 
     const token = createSessionToken(email);
@@ -294,38 +457,89 @@ app.post("/api/auth/login", async (req, res) => {
         plan: user.plan || "pro",
         profile: buildNormalizedProfile(user.profile),
       },
+      requestId: req.requestId,
     });
   } catch (error) {
-    return res.status(500).json({
-      error: error instanceof Error ? error.message : "Unknown error",
+    return res.status(500).json({ error: "login failed", requestId: req.requestId });
+  }
+});
+
+app.get("/api/user/profile", authMiddleware, async (req, res) => {
+  try {
+    const email = req.authEmail;
+    const db = await loadUsersDb();
+    const user = db.users.find((u) => u.email === email);
+    if (!user) {
+      return res.status(404).json({ error: "user not found", requestId: req.requestId });
+    }
+
+    return res.json({
+      ok: true,
+      profile: buildNormalizedProfile(user.profile),
+      user: {
+        email: user.email,
+        plan: user.plan || "pro",
+      },
+      requestId: req.requestId,
     });
+  } catch {
+    return res.status(500).json({ error: "profile fetch failed", requestId: req.requestId });
+  }
+});
+
+app.put("/api/user/profile", authMiddleware, async (req, res) => {
+  try {
+    const validation = validateProfileUpdatePayload(req.body || {});
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error, requestId: req.requestId });
+    }
+
+    const email = req.authEmail;
+    const db = await loadUsersDb();
+    const user = db.users.find((u) => u.email === email);
+    if (!user) {
+      return res.status(404).json({ error: "user not found", requestId: req.requestId });
+    }
+
+    user.profile = buildNormalizedProfile(validation.normalized);
+    await saveUsersDb(db);
+
+    return res.json({
+      ok: true,
+      profile: user.profile,
+      requestId: req.requestId,
+    });
+  } catch {
+    return res.status(500).json({ error: "profile update failed", requestId: req.requestId });
   }
 });
 
 app.post("/api/user/backup", authMiddleware, async (req, res) => {
   try {
     const email = req.authEmail;
-    const predictionHistory = Array.isArray(req.body?.predictionHistory) ? req.body.predictionHistory : [];
-    const dailyContext = req.body?.dailyContext && typeof req.body.dailyContext === "object" ? req.body.dailyContext : {};
+    const predictionHistory = req.body?.predictionHistory;
+    const dailyContext = req.body?.dailyContext;
+    const validation = validateBackupPayload({ predictionHistory, dailyContext });
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error, requestId: req.requestId });
+    }
 
     const db = await loadUsersDb();
     const user = db.users.find((u) => u.email === email);
     if (!user) {
-      return res.status(404).json({ error: "user not found" });
+      return res.status(404).json({ error: "user not found", requestId: req.requestId });
     }
 
     user.backup = {
-      predictionHistory,
+      predictionHistory: predictionHistory.slice(0, 200),
       dailyContext,
       updatedAt: new Date().toISOString(),
     };
     await saveUsersDb(db);
 
-    return res.json({ ok: true, updatedAt: user.backup.updatedAt });
+    return res.json({ ok: true, updatedAt: user.backup.updatedAt, requestId: req.requestId });
   } catch (error) {
-    return res.status(500).json({
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
+    return res.status(500).json({ error: "backup update failed", requestId: req.requestId });
   }
 });
 
@@ -335,7 +549,7 @@ app.get("/api/user/backup", authMiddleware, async (req, res) => {
     const db = await loadUsersDb();
     const user = db.users.find((u) => u.email === email);
     if (!user) {
-      return res.status(404).json({ error: "user not found" });
+      return res.status(404).json({ error: "user not found", requestId: req.requestId });
     }
 
     return res.json({
@@ -345,12 +559,26 @@ app.get("/api/user/backup", authMiddleware, async (req, res) => {
         dailyContext: {},
         updatedAt: null,
       },
+      requestId: req.requestId,
     });
   } catch (error) {
-    return res.status(500).json({
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
+    return res.status(500).json({ error: "backup fetch failed", requestId: req.requestId });
   }
+});
+
+app.post("/api/observability/client-error", (req, res) => {
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  logEvent("warn", "client_error", {
+    requestId: req.requestId,
+    message: String(body.message || ""),
+    stack: String(body.stack || ""),
+    source: String(body.source || ""),
+    line: Number(body.line || 0),
+    column: Number(body.column || 0),
+    url: String(body.url || ""),
+    userAgent: String(req.headers["user-agent"] || ""),
+  });
+  return res.json({ ok: true, requestId: req.requestId });
 });
 
 app.post("/api/copilot/chat", async (req, res) => {
@@ -359,17 +587,25 @@ app.post("/api/copilot/chat", async (req, res) => {
     const clientToken = String(req.body?.token || "").trim();
     
     if (!message) {
-      return res.status(400).json({ error: "message is required" });
+      return res.status(400).json({ error: "message is required", requestId: req.requestId });
+    }
+    if (message.length > 3000) {
+      return res.status(400).json({ error: "message must be 3000 chars or fewer", requestId: req.requestId });
     }
 
     const reply = await sendWithCopilot(message, buildSystemPrompt(), clientToken || undefined);
-    return res.json({ reply });
+    return res.json({ reply, requestId: req.requestId });
   } catch (error) {
     const fallbackReply = buildFallbackCoachReply(req.body?.message);
+    logEvent("warn", "copilot_chat_fallback", {
+      requestId: req.requestId,
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
     return res.status(200).json({
       reply: fallbackReply,
       fallback: true,
-      error: error instanceof Error ? error.message : "Unknown error"
+      error: error instanceof Error ? error.message : "Unknown error",
+      requestId: req.requestId,
     });
   }
 });
@@ -377,20 +613,22 @@ app.post("/api/copilot/chat", async (req, res) => {
 app.post("/api/copilot/prediction-analysis", async (req, res) => {
   try {
     const payload = req.body || {};
-    const taskName = String(payload.taskName || "").trim();
-    const category = String(payload.category || "").trim();
-    const predictedMinutes = Number(payload.predictedMinutes);
-    const actualMinutes = Number(payload.actualMinutes);
-    const deltaMinutes = Number(payload.deltaMinutes);
-    const predictedInterruptions = Number(payload.predictedInterruptions);
-    const actualInterruptions = Number(payload.actualInterruptions);
-    const pauseCount = Number(payload.pauseCount);
-    const skipCount = Number(payload.skipCount);
-    const clientToken = String(payload.token || "").trim();
-
-    if (!taskName) {
-      return res.status(400).json({ error: "taskName is required" });
+    const validation = validatePredictionPayload(payload);
+    if (!validation.ok) {
+      return res.status(400).json({ error: validation.error, requestId: req.requestId });
     }
+    const {
+      taskName,
+      category,
+      predictedMinutes,
+      actualMinutes,
+      deltaMinutes,
+      predictedInterruptions,
+      actualInterruptions,
+      pauseCount,
+      skipCount,
+      clientToken,
+    } = validation.normalized;
 
     const message = [
       "아래 포모도로 예측 결과를 분석해줘.",
@@ -421,11 +659,17 @@ app.post("/api/copilot/prediction-analysis", async (req, res) => {
         aiReasons,
         aiSuggestedMinutes,
         aiInsight,
-      }
+      },
+      requestId: req.requestId,
     });
   } catch (error) {
+    logEvent("error", "prediction_analysis_failed", {
+      requestId: req.requestId,
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
     return res.status(500).json({
-      error: error instanceof Error ? error.message : "Unknown error"
+      error: "prediction analysis failed",
+      requestId: req.requestId,
     });
   }
 });
@@ -435,17 +679,37 @@ app.get("/api/token-status", (_req, res) => {
   res.json({ hasToken });
 });
 
+app.use((req, res) => {
+  res.status(404).json({ error: "not found", requestId: req.requestId });
+});
+
+app.use((error, req, res, _next) => {
+  logEvent("error", "unhandled_error", {
+    requestId: req.requestId,
+    path: req.originalUrl,
+    message: error instanceof Error ? error.message : "Unknown error",
+    stack: error instanceof Error ? error.stack : "",
+  });
+  res.status(500).json({ error: "internal server error", requestId: req.requestId });
+});
+
 async function startServer() {
   try {
     await loadUsersDb();
-    console.log("User profile migration check completed.");
+    logEvent("info", "startup_migration_completed");
   } catch (error) {
-    console.error("User profile migration check failed:", error);
+    logEvent("error", "startup_migration_failed", {
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
   }
 
   app.listen(port, () => {
     const tokenStatus = process.env.GITHUB_TOKEN || process.env.COPILOT_API_KEY ? "✓ 토큰 설정됨" : "✗ 토큰 미설정";
-    console.log(`Server running on http://localhost:${port} (${tokenStatus})`);
+    logEvent("info", "server_started", {
+      port,
+      tokenStatus,
+      url: `http://localhost:${port}`,
+    });
   });
 }
 
